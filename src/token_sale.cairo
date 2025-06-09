@@ -47,6 +47,7 @@ mod TokenSale {
         self.accepted_payment_token.write(accepted_payment_token);
     }
 
+    #[abi(embed_v0)]
     impl TokenSaleImpl of ITokenSale<ContractState> {
         fn check_available_token(self: @ContractState, token_address: ContractAddress) -> u256 {
             let token = IERC20Dispatcher { contract_address: token_address };
