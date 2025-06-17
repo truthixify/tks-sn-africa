@@ -24,11 +24,15 @@ const PRICE: u256 = 21000;
 const OWNER: ContractAddress = 0x007e9244c7986db5e807d8838bcc218cd80ad4a82eb8fd1746e63fe223f67411
     .try_into()
     .unwrap();
+
+const BROKE_OWNER: ContractAddress = 12.try_into().unwrap();
+
 const NON_OWNER_WITH_BALANCE: ContractAddress =
     0x000ed03da7bc876b74d81fe91564f8c9935a2ad2e1a842a822b4909203c8e796
     .try_into()
     .unwrap();
-const NON_OWNER_WITHOUT_BALANCE: ContractAddress = 789.try_into().unwrap();
+
+const NON_OWNER_WITHOUT_BALANCE: ContractAddress = 0x789.try_into().unwrap();
 
 // Helper function to deploy the contract
 fn deploy_token_sale_contract() -> (ITokenSaleDispatcher, IERC20Dispatcher, IERC20Dispatcher) {
@@ -47,22 +51,55 @@ fn deploy_token_sale_contract() -> (ITokenSaleDispatcher, IERC20Dispatcher, IERC
     (token_sale_dispatcher, eth_dispatcher, strk_dispatcher)
 }
 
+// Helper function to deploy the contract
+fn deploy_token_sale_contract_with_broke_owner() -> (
+    ITokenSaleDispatcher, IERC20Dispatcher, IERC20Dispatcher,
+) {
+    let contract = declare("TokenSale").unwrap();
+
+    let mut constructor_args = array![];
+    Serde::serialize(@BROKE_OWNER, ref constructor_args);
+    Serde::serialize(@ACCEPTED_PAYMENT_TOKEN, ref constructor_args);
+
+    let (contract_address, _err) = contract.contract_class().deploy(@constructor_args).unwrap();
+
+    let token_sale_dispatcher = ITokenSaleDispatcher { contract_address };
+    let eth_dispatcher = IERC20Dispatcher { contract_address: ACCEPTED_PAYMENT_TOKEN };
+    let strk_dispatcher = IERC20Dispatcher { contract_address: TOKEN_TO_BUY };
+
+    (token_sale_dispatcher, eth_dispatcher, strk_dispatcher)
+}
+
 #[test]
 fn test_constructor_initializes_state() {
     let (dispatcher, _, _) = deploy_token_sale_contract();
 
-    assert(dispatcher.contract_address.is_non_zero(), 'Deployment failed');
+    assert(dispatcher.contract_address.is_non_zero(), 'Deployment paniced');
 }
 
 #[test]
 #[fork("SEPOLIA_LATEST")]
 #[should_panic(expected: 'Caller is not the owner')]
-fn test_deposit_token_should_fail_when_caller_is_not_owner() {
+fn test_deposit_token_should_panic_when_caller_is_not_owner() {
     let amount = 1000;
 
     let (dispatcher, _, _) = deploy_token_sale_contract();
 
     start_cheat_caller_address(dispatcher.contract_address, NON_OWNER_WITH_BALANCE);
+
+    dispatcher.deposit_token(TOKEN_TO_BUY, amount, PRICE);
+
+    stop_cheat_caller_address(dispatcher.contract_address);
+}
+
+#[test]
+#[fork("SEPOLIA_LATEST")]
+#[should_panic(expected: 'insufficient balance')]
+fn test_deposit_token_should_panic_when_caller_balance_is_low() {
+    let (dispatcher, _, _) = deploy_token_sale_contract_with_broke_owner();
+    let amount = 1000;
+
+    start_cheat_caller_address(dispatcher.contract_address, BROKE_OWNER);
 
     dispatcher.deposit_token(TOKEN_TO_BUY, amount, PRICE);
 
@@ -103,7 +140,7 @@ fn test_deposit_token() {
 #[test]
 #[fork("SEPOLIA_LATEST")]
 #[should_panic(expected: 'amount must be exact')]
-fn test_buy_token_incorrect_amount_panics() {
+fn test_buy_token_incorrect_amount_should_panic() {
     let buying_amount = 500;
 
     let (dispatcher, _, strk_dispatcher) = deploy_token_sale_contract();
@@ -124,11 +161,11 @@ fn test_buy_token_incorrect_amount_panics() {
 #[test]
 #[fork("SEPOLIA_LATEST")]
 #[should_panic(expected: 'insufficient funds')]
-fn test_buy_token_insufficient_fund_panics() {
+fn test_buy_token_with_insufficient_fund_should_panic() {
     let deposited_amount = 500;
     let buying_amount = 500;
 
-    let (dispatcher, eth_dispatcher, strk_dispatcher) = deploy_token_sale_contract();
+    let (dispatcher, _, strk_dispatcher) = deploy_token_sale_contract();
 
     start_cheat_caller_address(strk_dispatcher.contract_address, OWNER);
 
@@ -175,17 +212,38 @@ fn test_buy_token() {
 
     stop_cheat_caller_address(eth_dispatcher.contract_address);
 
+    let caller_eth_balance_before = eth_dispatcher.balance_of(NON_OWNER_WITH_BALANCE);
+    let caller_strk_balance_before = strk_dispatcher.balance_of(NON_OWNER_WITH_BALANCE);
+    let contract_eth_balance_before = eth_dispatcher.balance_of(dispatcher.contract_address);
+    let contract_strk_balance_before = strk_dispatcher.balance_of(dispatcher.contract_address);
+
     start_cheat_caller_address(dispatcher.contract_address, NON_OWNER_WITH_BALANCE);
 
     dispatcher.buy_token(TOKEN_TO_BUY, buying_amount);
 
     stop_cheat_caller_address(dispatcher.contract_address);
+
+    let caller_eth_balance_after = eth_dispatcher.balance_of(NON_OWNER_WITH_BALANCE);
+    let caller_strk_balance_after = strk_dispatcher.balance_of(NON_OWNER_WITH_BALANCE);
+    let contract_eth_balance_after = eth_dispatcher.balance_of(dispatcher.contract_address);
+    let contract_strk_balance_after = strk_dispatcher.balance_of(dispatcher.contract_address);
+
+    assert(caller_eth_balance_after == caller_eth_balance_before - PRICE, 'Invalid ETH amount');
+    assert(
+        caller_strk_balance_after == caller_strk_balance_before + deposited_amount,
+        'Invalid STRK amount',
+    );
+    assert(contract_eth_balance_after == contract_eth_balance_before + PRICE, 'Invalid ETH amount');
+    assert(
+        contract_strk_balance_after == contract_strk_balance_before - deposited_amount,
+        'Invalid STRK amount',
+    );
 }
 
 #[test]
 #[fork("SEPOLIA_LATEST")]
 #[should_panic(expected: 'Caller is not the owner')]
-fn test_upgrade_should_fail_when_caller_is_not_owner() {
+fn test_upgrade_should_panic_when_caller_is_not_owner() {
     let new_class_hash: ClassHash = 112233.try_into().unwrap();
 
     let (dispatcher, _, _) = deploy_token_sale_contract();

@@ -98,7 +98,7 @@ pub mod TokenSale {
             assert(buyer_balance >= buying_price, 'insufficient funds');
             payment_token.transfer_from(buyer, get_contract_address(), buying_price);
             let total_contract_balance = self.tokens_available_for_sale.entry(token_address).read();
-            println!("{}", total_contract_balance);
+
             token_to_buy.transfer(buyer, total_contract_balance);
         }
 
