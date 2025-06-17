@@ -102,6 +102,21 @@ pub mod TokenSale {
             token_to_buy.transfer(buyer, total_contract_balance);
         }
 
+        fn withdraw_token(ref self: ContractState) {
+            self.owner.assert_only_owner();
+
+            let caller = get_caller_address();
+            let this_contract = get_contract_address();
+            let payment_token = IERC20Dispatcher {
+                contract_address: self.accepted_payment_token.read(),
+            };
+            let contract_balance = payment_token.balance_of(this_contract);
+
+            if contract_balance > 0 {
+                payment_token.transfer(caller, contract_balance);
+            }
+        }
+
         fn upgrade(ref self: ContractState, new_class_hash: ClassHash) {
             self.owner.assert_only_owner();
 

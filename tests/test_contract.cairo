@@ -243,6 +243,69 @@ fn test_buy_token() {
 #[test]
 #[fork("SEPOLIA_LATEST")]
 #[should_panic(expected: 'Caller is not the owner')]
+fn test_withdraw_token_should_panic_when_caller_is_not_owner() {
+    let amount = 1000;
+
+    let (dispatcher, _, _) = deploy_token_sale_contract();
+
+    start_cheat_caller_address(dispatcher.contract_address, NON_OWNER_WITH_BALANCE);
+
+    dispatcher.withdraw_token();
+
+    stop_cheat_caller_address(dispatcher.contract_address);
+}
+
+#[test]
+#[fork("SEPOLIA_LATEST")]
+fn test_withdraw_token() {
+    let deposited_amount = 500;
+    let buying_amount = 500;
+
+    let (dispatcher, eth_dispatcher, strk_dispatcher) = deploy_token_sale_contract();
+
+    start_cheat_caller_address(strk_dispatcher.contract_address, OWNER);
+
+    strk_dispatcher.approve(dispatcher.contract_address, deposited_amount);
+
+    stop_cheat_caller_address(strk_dispatcher.contract_address);
+
+    start_cheat_caller_address(dispatcher.contract_address, OWNER);
+
+    dispatcher.deposit_token(TOKEN_TO_BUY, deposited_amount, PRICE);
+
+    stop_cheat_caller_address(dispatcher.contract_address);
+
+    start_cheat_caller_address(eth_dispatcher.contract_address, NON_OWNER_WITH_BALANCE);
+
+    eth_dispatcher.approve(dispatcher.contract_address, PRICE);
+
+    stop_cheat_caller_address(eth_dispatcher.contract_address);
+
+    start_cheat_caller_address(dispatcher.contract_address, NON_OWNER_WITH_BALANCE);
+
+    dispatcher.buy_token(TOKEN_TO_BUY, buying_amount);
+
+    stop_cheat_caller_address(dispatcher.contract_address);
+
+    let caller_balance_before = eth_dispatcher.balance_of(OWNER);
+    let contract_balance_before = eth_dispatcher.balance_of(dispatcher.contract_address);
+
+    start_cheat_caller_address(dispatcher.contract_address, OWNER);
+
+    dispatcher.withdraw_token();
+
+    stop_cheat_caller_address(dispatcher.contract_address);
+
+    let caller_balance_after = eth_dispatcher.balance_of(OWNER);
+    let contract_balance_after = eth_dispatcher.balance_of(dispatcher.contract_address);
+
+    assert(contract_balance_after + PRICE == contract_balance_before, 'Invalid amount');
+    assert(caller_balance_after == caller_balance_before + PRICE, 'Invalid amount');
+}
+
+#[test]
+#[fork("SEPOLIA_LATEST")]
+#[should_panic(expected: 'Caller is not the owner')]
 fn test_upgrade_should_panic_when_caller_is_not_owner() {
     let new_class_hash: ClassHash = 112233.try_into().unwrap();
 
